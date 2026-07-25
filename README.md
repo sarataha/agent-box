@@ -64,10 +64,14 @@ ssh -p 2222 root@localhost
 ## Work
 
 ```bash
-box
-box svc
-box --stop
-box --status
+box              attach tmux session "main"
+box <name>       attach/create any session
+box stop         stop the machine (saves CPU/RAM, volume persists)
+box status       show machine and proxy state
+box ls           list tmux sessions
+box kill         kill all tmux sessions except current
+box kill -s <n>  kill a specific session
+box -- <cmd>     run a command non-interactively
 ```
 
 `main` is for interactive work; `svc` is for resident processes. `tmux`
