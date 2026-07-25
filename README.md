@@ -74,3 +74,8 @@ box --status
 survives disconnects, not machine restarts.
 
 Tools added at runtime disappear on deploy; add them to the Dockerfile instead.
+
+## OpenCode
+
+Run `opencode`, then use `/connect` to add OpenRouter and `/models` to select
+`qwen/qwen3-coder:free`.

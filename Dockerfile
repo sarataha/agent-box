@@ -29,7 +29,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Claude Code is intentionally unpinned: it ships very frequently and is the one
 # component that should track latest. Everything else above is pinned by base
 # image. Rebuild to pick up new releases.
-RUN npm install -g @anthropic-ai/claude-code@latest
+RUN npm install -g \
+      @anthropic-ai/claude-code@latest \
+      opencode-ai@latest
 
 # Tailscale (official install script; supports Debian trixie)
 RUN curl -fsSL https://tailscale.com/install.sh | sh
