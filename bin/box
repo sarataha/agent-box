@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+# Connect to the stelab box.
+#
+#   box                 attach tmux session "main"
+#   box svc             attach tmux session "svc"
+#   box -- <command>    run a command on the box instead of attaching
+#   box --stop          stop the machine to save money (box restarts it later)
+#   box --status        show machine state without connecting
+#
+# Does everything needed in one go:
+#   1. starts the machine if Fly has it stopped
+#   2. brings up the fly proxy on :2222 if it is not already listening
+#   3. ssh in with agent forwarding, and attach (or create) the tmux session
+#
+# Agent forwarding means `git push` works on the box while you are attached.
+set -euo pipefail
+
+APP=stelab
+MACHINE_PORT=2222
+LOCAL_PORT=2222
+PROXY_LOG="${TMPDIR:-/tmp}/stelab-proxy.log"
+
+die() { echo "box: $*" >&2; exit 1; }
+
+command -v fly >/dev/null || die "fly CLI not on PATH"
+
+listening() { nc -z 127.0.0.1 "$LOCAL_PORT" >/dev/null 2>&1; }
+
+# --- 1. machine state --------------------------------------------------------
+# The box has no http_service, so nothing autostarts it. If Fly stopped it
+# (host maintenance, a crash loop) it stays stopped until asked.
+#
+# State is read from JSON, not the pretty table: that table uses box-drawing
+# separators which awk counts as their own fields, so column indexes are not
+# what they appear to be.
+machine_field() {
+  fly machines list -a "$APP" --json 2>/dev/null \
+    | python3 -c "import json,sys
+d=json.load(sys.stdin)
+print(d[0]['$1'] if d else '')" 2>/dev/null || echo ''
+}
+
+# --- 0. stop / status subcommands -------------------------------------------
+case "${1:-}" in
+  --stop)
+    mid="$(machine_field id)"
+    [ -n "$mid" ] || die "no machine found for app '$APP'"
+    # Anything running on the box dies here: tmux scrollback, agents, loops.
+    # Stopped machines are not billed for CPU/RAM, but the volume still is.
+    pkill -f "fly proxy $LOCAL_PORT" 2>/dev/null || true
+    exec fly machine stop "$mid" -a "$APP"
+    ;;
+  --status)
+    echo "machine: $(machine_field id)  state: $(machine_field state)"
+    listening && echo "proxy:   up on :$LOCAL_PORT" || echo "proxy:   down"
+    exit 0
+    ;;
+esac
+
+state="$(machine_field state)"
+if [ "$state" != "started" ]; then
+  # `fly machine start` refuses to guess: "a machine ID must be specified when
+  # not running interactively". Look it up rather than hardcoding it, so this
+  # keeps working if the machine is ever recreated.
+  mid="$(machine_field id)"
+  [ -n "$mid" ] || die "no machine found for app '$APP'"
+  echo "box: machine is '${state:-unknown}', starting $mid"
+  fly machine start "$mid" -a "$APP" || die "could not start $mid"
+  for _ in $(seq 1 30); do
+    sleep 1
+    [ "$(machine_field state)" = "started" ] && break
+  done
+  [ "$(machine_field state)" = "started" ] || die "machine did not reach started"
+fi
+
+# --- 2. proxy ----------------------------------------------------------------
+# Backgrounded and left running between invocations, so the second and later
+# calls reuse it. Kill it with: pkill -f 'fly proxy 2222'
+if listening; then
+  : # already up from a previous run
+else
+  echo "box: starting proxy :$LOCAL_PORT -> $APP:$MACHINE_PORT"
+  fly proxy "$LOCAL_PORT:$MACHINE_PORT" -a "$APP" >"$PROXY_LOG" 2>&1 &
+  for _ in $(seq 1 40); do
+    listening && break
+    sleep 0.5
+  done
+  listening || die "proxy did not come up; see $PROXY_LOG"
+fi
+
+# --- 3. connect --------------------------------------------------------------
+# Dedicated known_hosts. Everything here connects to 127.0.0.1:2222, and that
+# address is a shared namespace on the Mac - any other project that has ever
+# tunnelled ssh over local port 2222 leaves a conflicting key in the default
+# known_hosts and this fails with "host key verification failed". A separate
+# file keeps real host-key pinning for this box without colliding with those.
+KNOWN_HOSTS="$HOME/.ssh/known_hosts_stelab"
+
+SSH_OPTS=(
+  -p "$LOCAL_PORT"
+  -o UserKnownHostsFile="$KNOWN_HOSTS"
+  -o StrictHostKeyChecking=accept-new
+  -o ServerAliveInterval=30
+  -A                       # forward the agent so git push works while attached
+)
+
+if [ "${1:-}" = "--" ]; then
+  shift
+  [ $# -gt 0 ] || die "nothing to run after --"
+  exec ssh "${SSH_OPTS[@]}" root@127.0.0.1 "$@"
+fi
+
+SESSION="${1:-main}"
+# -t forces a pty; tmux needs one. new-session -A attaches if it already exists.
+exec ssh "${SSH_OPTS[@]}" -t root@127.0.0.1 \
+  "COLORTERM=truecolor tmux new-session -A -s '$SESSION'"

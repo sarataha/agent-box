@@ -1,0 +1,24 @@
+# Personal always-on box. Holds resident processes (trading loop, bots) and
+# long-lived tmux sessions that outlive the laptop.
+#
+# app name is set by `fly launch --name ...` on first run.
+app            = "stelab"
+primary_region = "lhr"
+
+[build]
+
+[env]
+  HOME        = "/data/home"
+  TS_HOSTNAME = "stelab"
+
+[mounts]
+  source      = "stelab_data"
+  destination = "/data"
+
+# No [http_service] block: nothing is served yet, and auto-stop/scale-to-zero
+# only applies to machines fronted by a service. Add one when hosting an MCP
+# server or a webhook, and set auto_stop_machines = false at that point.
+
+[[vm]]
+  size   = "shared-cpu-2x"
+  memory = "4gb"
