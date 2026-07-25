@@ -2,8 +2,10 @@
 # Connect to the stelab box.
 #
 #   box                 attach tmux session "main"
-#   box svc             attach tmux session "svc"
+#   box <name>          attach/create tmux session <name>
 #   box -- <command>    run a command on the box instead of attaching
+#   box --list          list tmux sessions on the box
+#   box --kill <name>   kill a tmux session
 #   box --stop          stop the machine to save money (box restarts it later)
 #   box --status        show machine state without connecting
 #
@@ -40,13 +42,11 @@ d=json.load(sys.stdin)
 print(d[0]['$1'] if d else '')" 2>/dev/null || echo ''
 }
 
-# --- 0. stop / status subcommands -------------------------------------------
+# --- 0. stop / status / list / kill subcommands -----------------------------
 case "${1:-}" in
   --stop)
     mid="$(machine_field id)"
     [ -n "$mid" ] || die "no machine found for app '$APP'"
-    # Anything running on the box dies here: tmux scrollback, agents, loops.
-    # Stopped machines are not billed for CPU/RAM, but the volume still is.
     pkill -f "fly proxy $LOCAL_PORT" 2>/dev/null || true
     exec fly machine stop "$mid" -a "$APP"
     ;;
@@ -103,6 +103,16 @@ SSH_OPTS=(
   -o ServerAliveInterval=30
   -A                       # forward the agent so git push works while attached
 )
+
+case "${1:-}" in
+  --list|-l)
+    exec ssh "${SSH_OPTS[@]}" root@127.0.0.1 tmux list-sessions
+    ;;
+  --kill)
+    [ -n "${2:-}" ] || die "usage: box --kill <session-name>"
+    exec ssh "${SSH_OPTS[@]}" root@127.0.0.1 tmux kill-session -t "$2"
+    ;;
+esac
 
 if [ "${1:-}" = "--" ]; then
   shift

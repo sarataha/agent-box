@@ -26,6 +26,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       procps \
   && rm -rf /var/lib/apt/lists/*
 
+# GitHub CLI (official Debian repo)
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+    | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
+  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+    > /etc/apt/sources.list.d/github-cli.list \
+  && apt-get update && apt-get install -y --no-install-recommends gh \
+  && rm -rf /var/lib/apt/lists/*
+
 # Claude Code is intentionally unpinned: it ships very frequently and is the one
 # component that should track latest. Everything else above is pinned by base
 # image. Rebuild to pick up new releases.
